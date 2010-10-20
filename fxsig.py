@@ -2,11 +2,12 @@
 
 __author__ = 'Pierrick Terrettaz'
 __date__ = '2010-10-18'
-__version__ = '0.1'
+__version__ = '0.2'
 
 import re
 import sys
 import time
+import random
 import urllib
 import urllib2
 import datetime
@@ -88,13 +89,26 @@ class PriceConverter(DefaultConverter):
 
 class Foresignal(object):
     def __init__(self, setup):
-        self.setup = setup
+        self.setup = {'delay':30}
+        self.setup.update(setup)
         self.signals = {}
         self.listeners = []
+        self.opener = urllib2.build_opener()
+        url = 'http://foresignal.com'
+        self.request = urllib2.Request(url)
+        self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
+        
+        self._init_regx()
+    
+    def _init_regx(self):
+        self.regx_currency_pair = re.compile('<a href="/signals/.+\.php" style="text-decoration:none;">(?P<currency_pair>.+/.+)</a></span>')
+        self.regx_action = re.compile('<div class="status"><span class=".+text">(?P<action>.+)</span></div>')
+        self.regx_dates = re.compile('</div>From (?P<from>.+)<br>Till (?P<to>.+)<div class="status">')
+        self.regx_trend_img = re.compile('<img src="(?P<trend_img>/img/(buy|sell)\.png)">')
+        self.regx_buysell_price = re.compile('(Buy|Sell) at <span class=".+text"><font size="\+2"><script type="text/javascript">f\(\'(?P<price>.+)\'\);</script></font></span>')
     
     def load_page(self):
-        url = 'http://foresignal.com'
-        return urllib2.urlopen(url).read()
+        return self.opener.open(self.request).read()
     
     def process(self):
         content = self.load_page()
@@ -138,17 +152,11 @@ class Foresignal(object):
                 self._fire_event('update_signal', signal)
                 
     def parse_signal(self, text, price_decoder_params):
-        regx_currency_pair = re.compile('<a href="/signals/.+\.php" style="text-decoration:none;">(?P<currency_pair>.+/.+)</a></span>')
-        regx_action = re.compile('<div class="status"><span class=".+text">(?P<action>.+)</span></div>')
-        regx_dates = re.compile('</div>From (?P<from>.+)<br>Till (?P<to>.+)<div class="status">')
-        regx_trend_img = re.compile('<img src="(?P<trend_img>/img/(buy|sell)\.png)">')
-        regx_buysell_price = re.compile('(Buy|Sell) at <span class=".+text"><font size="\+2"><script type="text/javascript">f\(\'(?P<price>.+)\'\);</script></font></span>')
-        
-        currency_pair = self._get_value(regx_currency_pair, text)
-        action = self._get_value(regx_action, text)
-        trend_img = self._get_value(regx_trend_img, text)
-        dates = self._get_value(regx_dates, text, DateConverter())
-        buysell_price = self._get_value(regx_buysell_price, text, PriceConverter(**price_decoder_params))
+        currency_pair = self._get_value(self.regx_currency_pair, text)
+        action = self._get_value(self.regx_action, text)
+        trend_img = self._get_value(self.regx_trend_img, text)
+        dates = self._get_value(self.regx_dates, text, DateConverter())
+        buysell_price = self._get_value(self.regx_buysell_price, text, PriceConverter(**price_decoder_params))
         
         if currency_pair:
             signal = {}
@@ -166,14 +174,16 @@ class Foresignal(object):
             values = parser(res.groupdict())
             return values
         
-    def live(self, delay=30):
+    def live(self, base_delay):
         while True:
             self.process()
+            delay = base_delay + random.randint(-10, 10) # offuscate regularity
+            delay = max(15, delay) # avoid aggressive polling
             time.sleep(int(delay))    
     
     def start(self):
         if self.setup['live_mode']:
-            self.live()
+            self.live(self.setup['delay'])
         else:
             self.process()
     
@@ -268,10 +278,15 @@ class SignalNotifier(SignalPrinter):
 def parse_command_line():
     parser = optparse.OptionParser("usage: %prog [options] [live]")
     parser.add_option('-n', '--disable-notifications', action='store_false', dest='notifications', help='Disable notifications', default=True)
+    parser.add_option('-d', '--delay', dest='delay', help='Delay in second to check new signals')
     
     options, args = parser.parse_args()
     
-    return { 'live_mode': 'live' in args }, options
+    setup = { 'live_mode': 'live' in args }
+    if options.delay:
+        setup['delay'] = int(options.delay)
+    
+    return setup, options
 
 def main():
     try:
