@@ -105,6 +105,7 @@ class Foresignal(object):
         params = [price_decoder_params for x in range(len(lines))]
         signals = map(self.parse_signal, lines, params)
         signals = filter(lambda s: s != None, signals)
+        signals = sorted(signals, key=lambda signal: signal['from'])
         map(self.process_signal, signals)
     
     def _fire_event(self, event, signal):
