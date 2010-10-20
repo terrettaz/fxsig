@@ -1,0 +1,7 @@
+== fxsig ==
+
+A script to be notifed of forex signal
+
+= Help =
+
+python fxsig.py --help
