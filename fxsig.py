@@ -78,7 +78,7 @@ class PriceConverter(DefaultConverter):
         
     def convert(self, value):
         result = ''
-        for i in range(0,len(value) - 1):
+        for i in range(0,len(value)):
             result += self._convert_char(i, value)
         return float(result)
     
