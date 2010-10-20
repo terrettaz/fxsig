@@ -263,7 +263,7 @@ class SignalPrinter(object):
         print '-- FINISH --'
         print '%(currency_pair)s' % signal
     def desc_signal(self, signal):
-        return '%(currency_pair)s\n%(action)s -> %(price)f\n current price\n  mid: %(current_mid)s\n  bid: %(current_bid)s\n  ask: %(current_ask)s\n valid\n  from: %(from)s\n  to:   %(to)s' % signal
+        return '%(currency_pair)s\n%(action)s -> %(price)s\n current price\n  mid: %(current_mid)s\n  bid: %(current_bid)s\n  ask: %(current_ask)s\n valid\n  from: %(from)s\n  to:   %(to)s' % signal
 
 class SignalNotifier(SignalPrinter):
     def __init__(self):
