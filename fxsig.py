@@ -166,7 +166,7 @@ class Foresignal(object):
             values = parser(res.groupdict())
             return values
         
-    def live(self, delay=3):
+    def live(self, delay=30):
         while True:
             self.process()
             time.sleep(int(delay))    
