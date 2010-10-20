@@ -12,8 +12,59 @@ import urllib
 import urllib2
 import datetime
 import optparse
+import threading
 
 from datetime import datetime, tzinfo, timedelta
+
+class PriceProvider(threading.Thread):
+    def __init__(self):
+        self.opener = urllib2.build_opener()
+        url = 'http://www.swissquote.ch/mobile/IphoneQuote.action?list=currency_iphone&market=cu&l=en&updateCounter=false'
+        self.request = urllib2.Request(url)
+        self.request.add_header('User-Agent', 'Swissquote/3.3.2 CFNetwork/485.10.2 Darwin/10.3.1')
+        threading.Thread.__init__(self)
+        self.prices = {}
+        self.update_prices()
+        self.start()
+    
+    def stop(self):
+        self._Thread__stop()
+    
+    def get_price(self, currency_pair):
+        return self.prices[currency_pair]
+    
+    def update_prices(self):
+        price_csv = self.opener.open(self.request).read()
+        prices = {}
+        for price in map(self._parse_line, price_csv.split('\n')[1:-1]):
+            prices[price['currency_pair']] = price
+            
+        self.prices.update(prices)
+    
+    def _parse_line(self, line):
+        parts = line.split('|')
+        ask = float(parts[0])
+        bid = float(parts[3])
+        mid = (ask + bid) / 2
+        price = {
+            'currency_pair':self._format_currency_pair(parts[18]),
+            'ask':ask,
+            'bid':bid,
+            'mid':mid,
+        }
+        return price
+    
+    def _format_currency_pair(self, cp):
+        if cp[3] == '_':
+            cp = cp[0:3] + '/' + cp[4:7]
+        return cp
+    
+    def run(self):
+        import pprint
+        while True:
+            time.sleep(10)
+            self.update_prices()
+        
 
 class DefaultConverter(object):
     def convert(self, value):
@@ -97,7 +148,7 @@ class Foresignal(object):
         url = 'http://foresignal.com'
         self.request = urllib2.Request(url)
         self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
-        
+        self.price_provider = PriceProvider()
         self._init_regx()
     
     def _init_regx(self):
@@ -132,6 +183,10 @@ class Foresignal(object):
     
     def process_signal(self, signal):
         key = signal['currency_pair']
+        price = self.price_provider.get_price(key)
+        signal['current_bid'] = price['bid']
+        signal['current_ask'] = price['ask']
+        signal['current_mid'] = price['mid']
         action = signal['action']
         current_signal = self.signals[key] if key in self.signals else None
         if not current_signal:
@@ -187,6 +242,9 @@ class Foresignal(object):
         else:
             self.process()
     
+    def close(self):
+        self.price_provider.stop()
+    
     def register(self, listener):
         if listener not in self.listeners:
             self.listeners.append(listener)
@@ -205,7 +263,7 @@ class SignalPrinter(object):
         print '-- FINISH --'
         print '%(currency_pair)s' % signal
     def desc_signal(self, signal):
-        return '%(currency_pair)s\n%(action)s -> %(price)f\n  from: %(from)s\n  to:   %(to)s' % signal
+        return '%(currency_pair)s\n%(action)s -> %(price)f\n current price\n  mid: %(current_mid)s\n  bid: %(current_bid)s\n  ask: %(current_ask)s\n valid\n  from: %(from)s\n  to:   %(to)s' % signal
 
 class SignalNotifier(SignalPrinter):
     def __init__(self):
@@ -289,16 +347,16 @@ def parse_command_line():
     return setup, options
 
 def main():
+    setup, options = parse_command_line()
+    foresignal = Foresignal(setup)
     try:
-        setup, options = parse_command_line()
-        foresignal = Foresignal(setup)
         foresignal.register(SignalPrinter())
         if options.notifications:
             foresignal.register(SignalNotifier())
         foresignal.start()
-        return 0
     except KeyboardInterrupt:
-        return 0
+        pass
+    foresignal.close()
 
 if __name__ == '__main__':
     sys.exit(main())
