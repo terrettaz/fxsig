@@ -19,46 +19,45 @@ from datetime import datetime, tzinfo, timedelta
 class PriceProvider(threading.Thread):
     def __init__(self):
         self.opener = urllib2.build_opener()
-        url = 'http://www.swissquote.ch/mobile/IphoneQuote.action?list=currency_iphone&market=cu&l=en&updateCounter=false'
+        url = 'http://www.fxstreet.com/rates-charts/forex-rates/'
         self.request = urllib2.Request(url)
-        self.request.add_header('User-Agent', 'Swissquote/3.3.2 CFNetwork/485.10.2 Darwin/10.3.1')
+        self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
         threading.Thread.__init__(self)
         self.prices = {}
+        self._init_regx()
         self.update_prices()
         self.start()
+    
+    def _init_regx(self):
+        self.regx_prices = re.compile('<td class="col-name">(?P<currency_pair>.+/.+)</td><td id="last_.+">(?P<mid>.+)</td><td id="open_.+">')
     
     def stop(self):
         self._Thread__stop()
     
     def get_price(self, currency_pair):
-        return self.prices[currency_pair]
+        return self.prices[currency_pair] if currency_pair in self.prices else None
+    
+    def _get_value(self, regx, text):
+        res = regx.search(text)
+        if res:
+            values = res.groupdict()
+            return values
+    
+    def load_page(self):
+        return self.opener.open(self.request).read()
     
     def update_prices(self):
-        price_csv = self.opener.open(self.request).read()
+        content = self.load_page()
+        lines = filter(lambda line: '<td class="col-name">' in line, content.split('\n'))
         prices = {}
-        for price in map(self._parse_line, price_csv.split('\n')[1:-1]):
+        for price in map(self._parse_price, lines):
             prices[price['currency_pair']] = price
             
         self.prices.update(prices)
     
-    def _parse_line(self, line):
-        parts = line.split('|')
-        ask = float(parts[0])
-        bid = float(parts[3])
-        mid = (ask + bid) / 2
-        price = {
-            'currency_pair':self._format_currency_pair(parts[18]),
-            'ask':ask,
-            'bid':bid,
-            'mid':mid,
-        }
-        return price
-    
-    def _format_currency_pair(self, cp):
-        if cp[3] == '_':
-            cp = cp[0:3] + '/' + cp[4:7]
-        return cp
-    
+    def _parse_price(self, text):
+        return self._get_value(self.regx_prices, text)
+            
     def run(self):
         import pprint
         while True:
@@ -184,9 +183,7 @@ class Foresignal(object):
     def process_signal(self, signal):
         key = signal['currency_pair']
         price = self.price_provider.get_price(key)
-        signal['current_bid'] = price['bid']
-        signal['current_ask'] = price['ask']
-        signal['current_mid'] = price['mid']
+        signal['current_mid'] = price['mid'] if price else ''
         action = signal['action']
         current_signal = self.signals[key] if key in self.signals else None
         if not current_signal:
@@ -263,7 +260,7 @@ class SignalPrinter(object):
         print '-- FINISH --'
         print '%(currency_pair)s' % signal
     def desc_signal(self, signal):
-        return '%(currency_pair)s\n%(action)s -> %(price)s\n current price\n  mid: %(current_mid)s\n  bid: %(current_bid)s\n  ask: %(current_ask)s\n valid\n  from: %(from)s\n  to:   %(to)s' % signal
+        return '%(currency_pair)s\n%(action)s -> %(price)s\n current price\n  mid: %(current_mid)s\n  valid\n  from: %(from)s\n  to:   %(to)s' % signal
 
 class SignalNotifier(SignalPrinter):
     def __init__(self):
