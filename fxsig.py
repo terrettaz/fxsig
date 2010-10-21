@@ -4,6 +4,7 @@ __author__ = 'Pierrick Terrettaz'
 __date__ = '2010-10-18'
 __version__ = '0.2'
 
+import os
 import re
 import sys
 import time
@@ -173,17 +174,19 @@ class Foresignal(object):
         map(self.process_signal, signals)
     
     def _fire_event(self, event, signal):
+        sig = signal.copy()
+        key = signal['currency_pair']
+        price = self.price_provider.get_price(key)
+        sig['current_bid'] = price['bid'] if price else ''
         for listener in self.listeners:
             try:
                 handler = getattr(listener, 'on_' + event)
-                handler(signal)
+                handler(sig)
             except:
                 pass
     
     def process_signal(self, signal):
         key = signal['currency_pair']
-        price = self.price_provider.get_price(key)
-        signal['current_mid'] = price['mid'] if price else ''
         action = signal['action']
         current_signal = self.signals[key] if key in self.signals else None
         if not current_signal:
@@ -323,13 +326,21 @@ class SignalNotifier(SignalPrinter):
             notifier = 'default'
         self.growl_notifiers[notifier].notify(notifier, title, body)
 
+    def _get_img_path(self, signal):
+        img_path = '/tmp/%(action)s.png' % signal
+        if not os.path.exists(img_path):
+            img_url = 'http://foresignal.com%(trend_img)s' % signal
+            img = urllib2.urlopen(img_url).read()
+            open(img_path % signal, 'w').write(img)
+        return img_path
+        
     def _notify_pynotify(self, title, body, signal):    
         import pynotify
-        n = pynotify.Notification(title, body, 'http://foresignal.com/%(trend_img)s' % signal)
+        n = pynotify.Notification(title, body, self._get_img_path(signal))
         n.set_urgency(pynotify.URGENCY_LOW)
-        n.set_timeout(1000) # 10 seconds
+        n.set_timeout(500) # 10 seconds
         n.show()
-
+        
 def parse_command_line():
     parser = optparse.OptionParser("usage: %prog [options] [live]")
     parser.add_option('-n', '--disable-notifications', action='store_false', dest='notifications', help='Disable notifications', default=True)
