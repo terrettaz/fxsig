@@ -177,7 +177,7 @@ class Foresignal(object):
         sig = signal.copy()
         key = signal['currency_pair']
         price = self.price_provider.get_price(key)
-        sig['current_bid'] = price['bid'] if price else ''
+        sig['current_mid'] = price['mid'] if price else ''
         for listener in self.listeners:
             try:
                 handler = getattr(listener, 'on_' + event)
