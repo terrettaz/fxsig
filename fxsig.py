@@ -175,19 +175,21 @@ class Foresignal(object):
         map(self.process_signal, signals)
     
     def _fire_event(self, event, signal):
+        sig = signal.copy()
+        key = signal['currency_pair']
+        price = self.price_provider.get_price(key)
+        sig['current_bid'] = price['bid']
+        sig['current_ask'] = price['ask']
+        sig['current_mid'] = price['mid']
         for listener in self.listeners:
             try:
                 handler = getattr(listener, 'on_' + event)
-                handler(signal)
+                handler(sig)
             except:
                 pass
     
     def process_signal(self, signal):
         key = signal['currency_pair']
-        price = self.price_provider.get_price(key)
-        signal['current_bid'] = price['bid']
-        signal['current_ask'] = price['ask']
-        signal['current_mid'] = price['mid']
         action = signal['action']
         current_signal = self.signals[key] if key in self.signals else None
         if not current_signal:
