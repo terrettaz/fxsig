@@ -20,11 +20,6 @@ from datetime import datetime, tzinfo, timedelta
 class DefaultConverter(object):
     def convert(self, value):
         return value
-    
-    def __call__(self, dictionary):
-        for k, v in dictionary.items():
-            dictionary[k] = self.convert(v)
-        return dictionary
 
 class DateConverter(DefaultConverter):
     def convert(self, value):
@@ -75,7 +70,7 @@ class DateConverter(DefaultConverter):
 
 
 class PriceConverter(DefaultConverter):
-    def __init__(self, z, padding):
+    def set_params(self, z, padding):
         self.z = z
         self.padding = int(padding)
         
@@ -91,41 +86,54 @@ class PriceConverter(DefaultConverter):
 
 
 class HTMLScraper(object):
-    def __init__(self, url, regx=[], parsers={}, line_validators=[]):
+    def __init__(self, url):
         self.opener = urllib2.build_opener()
         self.request = urllib2.Request(url)
         self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
-        self.regx = regx
-        self.parsers = parsers
-        self.line_validators = line_validators
+        self.regx = []
+        self.parsers = {}
+        self.line_validators = []
     
     def _load_page(self):
         return self.opener.open(self.request).read()
     
-    def _get_value(self, regx, text, parser=DefaultConverter()):
+    def get_value(self, regx, text):
         res = regx.search(text)
         if res:
-            values = parser(res.groupdict())
+            values = res.groupdict()
+            for k, v in values.items():
+                if k in self.parsers:
+                    values[k] = self.parsers[k].convert(v)
+                    
             return values
     
     def _parse_line(self, line):
         values = {}
         for regx in self.regx:
-            values.update(self._get_value(regx, line))
+            value = self.get_value(regx, line)
+            if value:
+                values.update(self.get_value(regx, line))
         return values
 
     def fetch(self):
-        content = self._load_page()
-        lines = content.split('\n')
+        self.content = self._load_page()
+        return self.content
+        
+    def get_values(self):
+        assert self.content, 'Content is not yet loaded, call method "fetch" before'
+        
+        lines = self.content.split('\n')
         for validator in self.line_validators:
             lines = filter(validator, lines)
         values = map(self._parse_line, lines)
+        values = filter(lambda value: value != None, values)
         return values
         
 class PriceProvider(threading.Thread):
     def __init__(self):
         threading.Thread.__init__(self)
-        self.scraper = HTMLScraper('http://www.fxstreet.com/rates-charts/forex-rates/', line_validators=[lambda line: '<td class="col-name">' in line])
+        self.scraper = HTMLScraper('http://www.fxstreet.com/rates-charts/forex-rates/')
+        self.scraper.line_validators.append(lambda line: '<td class="col-name">' in line)
         self.scraper.regx.append(re.compile('<td class="col-name">(?P<currency_pair>.+/.+)</td><td id="last_.+">(?P<mid>.+)</td><td id="open_.+">'))
         self.prices = {}
         self.update_prices()
@@ -139,7 +147,8 @@ class PriceProvider(threading.Thread):
     
     def update_prices(self):
         prices = {}
-        for price in self.scraper.fetch():
+        self.scraper.fetch()
+        for price in self.scraper.get_values():
             prices[price['currency_pair']] = price
             
         self.prices.update(prices)
@@ -155,32 +164,27 @@ class Foresignal(object):
         self.setup.update(setup)
         self.signals = {}
         self.listeners = []
-        self.opener = urllib2.build_opener()
-        url = 'http://foresignal.com'
-        self.request = urllib2.Request(url)
-        self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
         self.price_provider = PriceProvider()
-        self._init_regx()
+        self._init_scraper()
     
-    def _init_regx(self):
-        self.regx_currency_pair = re.compile('<a href="/signals/.+\.php" style="text-decoration:none;">(?P<currency_pair>.+/.+)</a></span>')
-        self.regx_action = re.compile('<div class="status"><span class=".+text">(?P<action>.+)</span></div>')
-        self.regx_dates = re.compile('</div>From (?P<from>.+)<br>Till (?P<to>.+)<div class="status">')
-        self.regx_trend_img = re.compile('<img src="(?P<trend_img>/img/(buy|sell)\.png)">')
-        self.regx_buysell_price = re.compile('(Buy|Sell) at <span class=".+text"><font size="\+2"><script type="text/javascript">f\(\'(?P<price>.+)\'\);</script></font></span>')
-    
-    def load_page(self):
-        return self.opener.open(self.request).read()
+    def _init_scraper(self):
+        self.scraper = HTMLScraper('http://foresignal.com')
+        self.scraper.line_validators.append(lambda line: line.startswith('<div class="symbol') and 'GMT' in line)
+        self.scraper.regx.append(re.compile('<a href="/signals/.+\.php" style="text-decoration:none;">(?P<currency_pair>.+/.+)</a></span>'))
+        self.scraper.regx.append(re.compile('<div class="status"><span class=".+text">(?P<action>.+)</span></div>'))
+        self.scraper.regx.append(re.compile('</div>From (?P<from>.+)<br>Till (?P<to>.+)<div class="status">'))
+        self.scraper.regx.append(re.compile('<img src="(?P<trend_img>/img/(buy|sell)\.png)">'))
+        self.scraper.regx.append(re.compile('(Buy|Sell) at <span class=".+text"><font size="\+2"><script type="text/javascript">f\(\'(?P<price>.+)\'\);</script></font></span>'))
+        self.scraper.parsers['from'] = DateConverter()
+        self.scraper.parsers['to'] = self.scraper.parsers['from']
+        self.scraper.parsers['price'] = PriceConverter()
     
     def process(self):
-        content = self.load_page()
+        content = self.scraper.fetch()
         regx_price_decoder_params = re.compile("var z='(?P<z>.+)';function f\(s\)\{var i=0;for \(i=0;i<s.length;i\+\+\)\{document.write\(z.charAt\(s.charCodeAt\(i\)-(?P<padding>\d+)-i\)\);\}\}")
-        price_decoder_params = self._get_value(regx_price_decoder_params, content)
-        
-        lines = filter(lambda line: line.startswith('<div class="symbol'), content.split('\n'))
-        params = [price_decoder_params for x in range(len(lines))]
-        signals = map(self.parse_signal, lines, params)
-        signals = filter(lambda s: s != None, signals)
+        price_decoder_params = self.scraper.get_value(regx_price_decoder_params, content)
+        self.scraper.parsers['price'].set_params(**price_decoder_params)
+        signals = self.scraper.get_values()
         signals = sorted(signals, key=lambda signal: signal['from'])
         map(self.process_signal, signals)
     
@@ -233,12 +237,6 @@ class Foresignal(object):
                 signal.update(buysell_price)
             signal.update(dates)
             return signal
-        
-    def _get_value(self, regx, text, parser=DefaultConverter()):
-        res = regx.search(text)
-        if res:
-            values = parser(res.groupdict())
-            return values
         
     def live(self, base_delay):
         while True:
