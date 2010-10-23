@@ -17,55 +17,6 @@ import threading
 
 from datetime import datetime, tzinfo, timedelta
 
-class PriceProvider(threading.Thread):
-    def __init__(self):
-        self.opener = urllib2.build_opener()
-        url = 'http://www.fxstreet.com/rates-charts/forex-rates/'
-        self.request = urllib2.Request(url)
-        self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
-        threading.Thread.__init__(self)
-        self.prices = {}
-        self._init_regx()
-        self.update_prices()
-        self.start()
-    
-    def _init_regx(self):
-        self.regx_prices = re.compile('<td class="col-name">(?P<currency_pair>.+/.+)</td><td id="last_.+">(?P<mid>.+)</td><td id="open_.+">')
-    
-    def stop(self):
-        self._Thread__stop()
-    
-    def get_price(self, currency_pair):
-        return self.prices[currency_pair] if currency_pair in self.prices else None
-    
-    def _get_value(self, regx, text):
-        res = regx.search(text)
-        if res:
-            values = res.groupdict()
-            return values
-    
-    def load_page(self):
-        return self.opener.open(self.request).read()
-    
-    def update_prices(self):
-        content = self.load_page()
-        lines = filter(lambda line: '<td class="col-name">' in line, content.split('\n'))
-        prices = {}
-        for price in map(self._parse_price, lines):
-            prices[price['currency_pair']] = price
-            
-        self.prices.update(prices)
-    
-    def _parse_price(self, text):
-        return self._get_value(self.regx_prices, text)
-            
-    def run(self):
-        import pprint
-        while True:
-            time.sleep(10)
-            self.update_prices()
-        
-
 class DefaultConverter(object):
     def convert(self, value):
         return value
@@ -138,6 +89,66 @@ class PriceConverter(DefaultConverter):
         pos = ord(text[i]) - self.padding - i
         return self.z[pos]
 
+
+class HTMLScraper(object):
+    def __init__(self, url, regx=[], parsers={}, line_validators=[]):
+        self.opener = urllib2.build_opener()
+        self.request = urllib2.Request(url)
+        self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
+        self.regx = regx
+        self.parsers = parsers
+        self.line_validators = line_validators
+    
+    def _load_page(self):
+        return self.opener.open(self.request).read()
+    
+    def _get_value(self, regx, text, parser=DefaultConverter()):
+        res = regx.search(text)
+        if res:
+            values = parser(res.groupdict())
+            return values
+    
+    def _parse_line(self, line):
+        values = {}
+        for regx in self.regx:
+            values.update(self._get_value(regx, line))
+        return values
+
+    def fetch(self):
+        content = self._load_page()
+        lines = content.split('\n')
+        for validator in self.line_validators:
+            lines = filter(validator, lines)
+        values = map(self._parse_line, lines)
+        return values
+        
+class PriceProvider(threading.Thread):
+    def __init__(self):
+        threading.Thread.__init__(self)
+        self.scraper = HTMLScraper('http://www.fxstreet.com/rates-charts/forex-rates/', line_validators=[lambda line: '<td class="col-name">' in line])
+        self.scraper.regx.append(re.compile('<td class="col-name">(?P<currency_pair>.+/.+)</td><td id="last_.+">(?P<mid>.+)</td><td id="open_.+">'))
+        self.prices = {}
+        self.update_prices()
+        self.start()
+    
+    def stop(self):
+        self._Thread__stop()
+    
+    def get_price(self, currency_pair):
+        return self.prices[currency_pair] if currency_pair in self.prices else None
+    
+    def update_prices(self):
+        prices = {}
+        for price in self.scraper.fetch():
+            prices[price['currency_pair']] = price
+            
+        self.prices.update(prices)
+                
+    def run(self):
+        while True:
+            time.sleep(10)
+            self.update_prices()
+        
 class Foresignal(object):
     def __init__(self, setup):
         self.setup = {'delay':30}
