@@ -91,7 +91,7 @@ class HTMLScraper(object):
         self.request = urllib2.Request(url)
         self.request.add_header('User-Agent', 'Mozilla/5.0 Gecko/20090715 Firefox/3.5.1')
         self.regx = []
-        self.parsers = {}
+        self.converters = {}
         self.line_validators = []
     
     def _load_page(self):
@@ -102,8 +102,8 @@ class HTMLScraper(object):
         if res:
             values = res.groupdict()
             for k, v in values.items():
-                if k in self.parsers:
-                    values[k] = self.parsers[k].convert(v)
+                if k in self.converters:
+                    values[k] = self.converters[k].convert(v)
                     
             return values
     
@@ -175,15 +175,15 @@ class Foresignal(object):
         self.scraper.regx.append(re.compile('</div>From (?P<from>.+)<br>Till (?P<to>.+)<div class="status">'))
         self.scraper.regx.append(re.compile('<img src="(?P<trend_img>/img/(buy|sell)\.png)">'))
         self.scraper.regx.append(re.compile('(Buy|Sell) at <span class=".+text"><font size="\+2"><script type="text/javascript">f\(\'(?P<price>.+)\'\);</script></font></span>'))
-        self.scraper.parsers['from'] = DateConverter()
-        self.scraper.parsers['to'] = self.scraper.parsers['from']
-        self.scraper.parsers['price'] = PriceConverter()
+        self.scraper.converters['from'] = DateConverter()
+        self.scraper.converters['to'] = self.scraper.converters['from']
+        self.scraper.converters['price'] = PriceConverter()
     
     def process(self):
         content = self.scraper.fetch()
         regx_price_decoder_params = re.compile("var z='(?P<z>.+)';function f\(s\)\{var i=0;for \(i=0;i<s.length;i\+\+\)\{document.write\(z.charAt\(s.charCodeAt\(i\)-(?P<padding>\d+)-i\)\);\}\}")
         price_decoder_params = self.scraper.get_value(regx_price_decoder_params, content)
-        self.scraper.parsers['price'].set_params(**price_decoder_params)
+        self.scraper.converters['price'].set_params(**price_decoder_params)
         signals = self.scraper.get_values()
         signals = sorted(signals, key=lambda signal: signal['from'])
         map(self.process_signal, signals)
@@ -220,24 +220,7 @@ class Foresignal(object):
             else:
                 self.signals[key] = signal
                 self._fire_event('update_signal', signal)
-                
-    def parse_signal(self, text, price_decoder_params):
-        currency_pair = self._get_value(self.regx_currency_pair, text)
-        action = self._get_value(self.regx_action, text)
-        trend_img = self._get_value(self.regx_trend_img, text)
-        dates = self._get_value(self.regx_dates, text, DateConverter())
-        buysell_price = self._get_value(self.regx_buysell_price, text, PriceConverter(**price_decoder_params))
-        
-        if currency_pair:
-            signal = {}
-            signal.update(currency_pair)
-            signal.update(action)
-            if trend_img:
-                signal.update(trend_img)
-                signal.update(buysell_price)
-            signal.update(dates)
-            return signal
-        
+                        
     def live(self, base_delay):
         while True:
             self.process()
