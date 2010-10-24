@@ -20,9 +20,14 @@ from datetime import datetime, tzinfo, timedelta
 class DefaultConverter(object):
     def convert(self, value):
         return value
+    def _check_value(self, value):
+        if type(value) != str: raise TypeError('Value not a string')
+        if value.strip() == '': raise ValueError('Value is blank')
 
 class DateConverter(DefaultConverter):
     def convert(self, value):
+        if not value: return None
+        self._check_value(value)
         return datetime.strptime(value, '%b, %d %H:%M %Z')\
             .replace(year=datetime.now().year, tzinfo=DateConverter.gmt)\
             .astimezone(DateConverter.local)\
@@ -75,10 +80,17 @@ class PriceConverter(DefaultConverter):
         self.padding = int(padding)
         
     def convert(self, value):
+        if not value: return None
+        self._check_params()
+        self._check_value(value)
         result = ''
         for i in range(0,len(value)):
             result += self._convert_char(i, value)
         return float(result)
+    
+    def _check_params(self):
+        if not self.z or not self.padding:
+            raise AttributeError('parameters are not set correctly')
     
     def _convert_char(self, i, text):
         pos = ord(text[i]) - self.padding - i
