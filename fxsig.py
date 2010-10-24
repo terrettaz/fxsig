@@ -158,13 +158,16 @@ class PriceProvider(threading.Thread):
         return self.prices[currency_pair] if currency_pair in self.prices else None
     
     def update_prices(self):
-        prices = {}
-        self.scraper.fetch()
-        for price in self.scraper.get_values():
-            prices[price['currency_pair']] = price
+        try:
+            prices = {}
+            self.scraper.fetch()
+            for price in self.scraper.get_values():
+                prices[price['currency_pair']] = price
             
-        self.prices.update(prices)
-                
+            self.prices.update(prices)
+        except urllib2.URLError, e:
+            pass # prices cannot be loaded
+            
     def run(self):
         while True:
             time.sleep(10)
@@ -192,13 +195,16 @@ class Foresignal(object):
         self.scraper.converters['price'] = PriceConverter()
     
     def process(self):
-        content = self.scraper.fetch()
-        regx_price_decoder_params = re.compile("var z='(?P<z>.+)';function f\(s\)\{var i=0;for \(i=0;i<s.length;i\+\+\)\{document.write\(z.charAt\(s.charCodeAt\(i\)-(?P<padding>\d+)-i\)\);\}\}")
-        price_decoder_params = self.scraper.get_value(regx_price_decoder_params, content)
-        self.scraper.converters['price'].set_params(**price_decoder_params)
-        signals = self.scraper.get_values()
-        signals = sorted(signals, key=lambda signal: signal['from'])
-        map(self.process_signal, signals)
+        try:
+            content = self.scraper.fetch()
+            regx_price_decoder_params = re.compile("var z='(?P<z>.+)';function f\(s\)\{var i=0;for \(i=0;i<s.length;i\+\+\)\{document.write\(z.charAt\(s.charCodeAt\(i\)-(?P<padding>\d+)-i\)\);\}\}")
+            price_decoder_params = self.scraper.get_value(regx_price_decoder_params, content)
+            self.scraper.converters['price'].set_params(**price_decoder_params)
+            signals = self.scraper.get_values()
+            signals = sorted(signals, key=lambda signal: signal['from'])
+            map(self.process_signal, signals)
+        except urllib2.URLError, e:
+            print 'Error: signals cannot be loaded, reason: %s' % e.reason
     
     def _fire_event(self, event, signal):
         sig = signal.copy()

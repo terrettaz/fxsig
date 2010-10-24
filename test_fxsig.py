@@ -86,7 +86,7 @@ class TestDateConverter(unittest.TestCase):
         self.assertEquals(type(actual), datetime.datetime)
         self.assertEquals(actual, datetime.datetime(year=this_year, month=10, day=22, hour=14, minute=41) + DSTOFFSET)
 #
-# Test DateConverter
+# Test PriceConverter
 #
 class TestPriceConverter(unittest.TestCase):
 
