@@ -2,7 +2,7 @@
 
 __author__ = 'Pierrick Terrettaz'
 __date__ = '2010-10-18'
-__version__ = '0.2'
+__version__ = '0.3'
 
 import os
 import re
@@ -170,7 +170,7 @@ class PriceProvider(threading.Thread):
             
     def run(self):
         while True:
-            time.sleep(10)
+            time.sleep(25)
             self.update_prices()
         
 class Foresignal(object):

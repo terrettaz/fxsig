@@ -5,3 +5,14 @@ A script to be notifed of forex signal
 = Help =
 
 python fxsig.py --help
+
+
+= Changes =
+
+version 0.3
+ - fix issue 1
+ - fix problems when notifier's handlers are not installed
+ - notifications contains images with Mac or Linux
+ - added a option to parametrized the check delay for signal (default 30 seconds)
+ - randomize the signal connection period
+ - check every 25 seconds current prices
