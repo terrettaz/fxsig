@@ -294,6 +294,7 @@ class SignalNotifier(SignalPrinter):
         self.notify('-- FINISH --', '%(currency_pair)s' % signal, signal)
     
     def notify(self, title, body, signal):
+        if not self.ready: return
         notifier = getattr(self, "_notify_%s" % self.system)
         notifier(title, body, signal)
 
