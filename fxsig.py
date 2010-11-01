@@ -32,7 +32,7 @@ class DateConverter(DefaultConverter):
             .replace(year=datetime.now().year, tzinfo=DateConverter.gmt)\
             .astimezone(DateConverter.local)\
             .replace(tzinfo=None)
-    
+    ZERO = timedelta(0)
     STDOFFSET = timedelta(seconds = -time.timezone)
     if time.daylight:
         DSTOFFSET = timedelta(seconds = -time.altzone)
@@ -51,7 +51,7 @@ class DateConverter(DefaultConverter):
             if self._isdst(dt):
                 return DateConverter.DSTDIFF
             else:
-                return ZERO
+                return DateConverter.ZERO
         def tzname(self, dt):
             return time.tzname[self._isdst(dt)]
         def _isdst(self, dt):
